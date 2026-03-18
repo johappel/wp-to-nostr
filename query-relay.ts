@@ -5,13 +5,18 @@
  * Fragt alle kind:31923-Events (Calendar) vom Relay ab.
  *
  * Verwendung:
- *   deno task query-relay                        # alle Events
- *   deno task query-relay -- --limit=10          # max. 10 Events
- *   deno task query-relay -- --tag=religion      # nur t-Tag "religion"
- *   deno task query-relay -- --search=Vortrag    # Titelsuche
+ *   deno task query-relay                                    # alle Events
+ *   deno task query-relay -- --limit=10                      # max. 10 Events
+ *   deno task query-relay -- --tag=religion                  # nur t-Tag "religion"
+ *   deno task query-relay -- --search=Vortrag                # Titelsuche
+ *   deno task query-relay -- --from=2026-03-01               # ab Datum
+ *   deno task query-relay -- --until=2026-12-31              # bis Datum
+ *   deno task query-relay -- --from=2026-03-01 --until=2026-06-30
  *   deno task query-relay -- --relay=wss://...
  *   PUBLIC_KEY=<hex> deno task query-relay
  *   NOSTR_PRIVATE_KEY=nsec1... deno task query-relay
+ *
+ * Datumsformat für --from/--until: YYYY-MM-DD oder YYYY-MM-DDTHH:MM:SS
  */
 
 import { getPublicKey, SimplePool } from "nostr-tools";
@@ -58,14 +63,23 @@ function resolvePubkey(): string | null {
 
 async function main() {
   const args = parseArgs(Deno.args, {
-    string: ["limit", "tag", "search", "relay"],
+    string: ["limit", "tag", "search", "relay", "from", "until"],
     default: {},
   });
 
-  const relay   = (args.relay as string | undefined) ?? NOSTR_RELAY;
-  const limit   = args.limit   ? Number(args.limit)          : undefined;
-  const tagFilter = args.tag   ? (args.tag as string).toLowerCase() : undefined;
-  const search  = args.search  ? (args.search as string).toLowerCase() : undefined;
+  const relay     = (args.relay as string | undefined) ?? NOSTR_RELAY;
+  const limit     = args.limit  ? Number(args.limit) : undefined;
+  const tagFilter = args.tag    ? (args.tag as string).toLowerCase() : undefined;
+  const search    = args.search ? (args.search as string).toLowerCase() : undefined;
+
+  // --from / --until als Unix-Timestamp (Sekunden)
+  const parseDate = (s: string): number => {
+    const d = new Date(s.includes("T") ? s : s + "T00:00:00Z");
+    if (isNaN(d.getTime())) throw new Error(`Ungültiges Datum: "${s}" (erwartet: YYYY-MM-DD)`);
+    return Math.floor(d.getTime() / 1000);
+  };
+  const fromTs  = args.from  ? parseDate(args.from  as string) : undefined;
+  const untilTs = args.until ? parseDate(args.until as string) : undefined;
 
   const pubkey = resolvePubkey();
 
@@ -74,6 +88,8 @@ async function main() {
   if (pubkey)    console.log(`   Author : ${pubkey}`);
   if (tagFilter) console.log(`   Tag    : ${tagFilter}`);
   if (search)    console.log(`   Suche  : "${search}"`);
+  if (fromTs)    console.log(`   Von    : ${new Date(fromTs * 1000).toISOString().slice(0, 10)}`);
+  if (untilTs)   console.log(`   Bis    : ${new Date(untilTs * 1000).toISOString().slice(0, 10)}`);
   if (limit)     console.log(`   Limit  : ${limit}`);
   console.log();
 
@@ -90,11 +106,23 @@ async function main() {
 
     let events = await pool.querySync([relay], filter);
 
-    // Titelsuche (client-seitig, da Relay kein Volltextsuche macht)
+    // Client-seitige Filter (Relay unterstützt kein start-Range oder Volltextsuche)
     if (search) {
       events = events.filter((e) => {
         const title = e.tags.find((t) => t[0] === "title")?.[1] ?? "";
         return title.toLowerCase().includes(search);
+      });
+    }
+    if (fromTs) {
+      events = events.filter((e) => {
+        const s = Number(e.tags.find((t) => t[0] === "start")?.[1] ?? 0);
+        return s >= fromTs;
+      });
+    }
+    if (untilTs) {
+      events = events.filter((e) => {
+        const s = Number(e.tags.find((t) => t[0] === "start")?.[1] ?? 0);
+        return s <= untilTs;
       });
     }
 
