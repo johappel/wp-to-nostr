@@ -1,21 +1,22 @@
-#!/usr/bin/env -S deno run --allow-net --allow-env=NOSTR_RELAY,NOSTR_PRIVATE_KEY
+#!/usr/bin/env -S deno run --allow-net --allow-env=NOSTR_RELAY,NOSTR_PRIVATE_KEY,PUBLIC_KEY
 /**
  * query-relay.ts
  *
- * Fragt alle kind:31923-Events (Calendar) vom Relay ab,
- * optional gefiltert nach einem Public Key.
+ * Fragt alle kind:31923-Events (Calendar) vom Relay ab.
  *
- * Lokal (ohne Filter – alle Events):
- *   deno task query-relay
- *
- * Mit Filter (nur von deinem Public Key):
- *   NOSTR_PRIVATE_KEY=nsec1... deno task query-relay
- *   oder:
+ * Verwendung:
+ *   deno task query-relay                        # alle Events
+ *   deno task query-relay -- --limit=10          # max. 10 Events
+ *   deno task query-relay -- --tag=religion      # nur t-Tag "religion"
+ *   deno task query-relay -- --search=Vortrag    # Titelsuche
+ *   deno task query-relay -- --relay=wss://...
  *   PUBLIC_KEY=<hex> deno task query-relay
+ *   NOSTR_PRIVATE_KEY=nsec1... deno task query-relay
  */
 
 import { getPublicKey, SimplePool } from "nostr-tools";
 import { decode } from "nostr-tools/nip19";
+import { parseArgs } from "jsr:@std/cli/parse-args";
 
 const NOSTR_RELAY = Deno.env.get("NOSTR_RELAY") ?? "wss://relay-rpi.edufeed.org";
 const PRIVKEY_RAW = Deno.env.get("NOSTR_PRIVATE_KEY");
@@ -56,57 +57,81 @@ function resolvePubkey(): string | null {
 }
 
 async function main() {
+  const args = parseArgs(Deno.args, {
+    string: ["limit", "tag", "search", "relay"],
+    default: {},
+  });
+
+  const relay   = (args.relay as string | undefined) ?? NOSTR_RELAY;
+  const limit   = args.limit   ? Number(args.limit)          : undefined;
+  const tagFilter = args.tag   ? (args.tag as string).toLowerCase() : undefined;
+  const search  = args.search  ? (args.search as string).toLowerCase() : undefined;
+
   const pubkey = resolvePubkey();
 
   console.log(`\n🔍 Query Relay für kind:31923-Events\n`);
-  console.log(`   Relay  : ${NOSTR_RELAY}`);
-  if (pubkey) {
-    console.log(`   Author : ${pubkey}`);
-  } else {
-    console.log(`   Filter : keine (alle Events)`);
-  }
+  console.log(`   Relay  : ${relay}`);
+  if (pubkey)    console.log(`   Author : ${pubkey}`);
+  if (tagFilter) console.log(`   Tag    : ${tagFilter}`);
+  if (search)    console.log(`   Suche  : "${search}"`);
+  if (limit)     console.log(`   Limit  : ${limit}`);
   console.log();
 
   const pool = new SimplePool();
   try {
     console.log("⏳ Abrufen vom Relay...\n");
 
-    // NIP-01 Filter: kind:31923, optional mit Author-Filter
-    const filter = pubkey
-      ? { kinds: [31923], authors: [pubkey] }
-      : { kinds: [31923] };
+    // NIP-01 Filter: kind:31923, optional mit Author- und Tag-Filter
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const filter: Record<string, any> = { kinds: [31923] };
+    if (pubkey)    filter["authors"] = [pubkey];
+    if (tagFilter) filter["#t"]      = [tagFilter];
+    if (limit)     filter["limit"]   = limit;
 
-    const events = await pool.querySync([NOSTR_RELAY], filter);
+    let events = await pool.querySync([relay], filter);
+
+    // Titelsuche (client-seitig, da Relay kein Volltextsuche macht)
+    if (search) {
+      events = events.filter((e) => {
+        const title = e.tags.find((t) => t[0] === "title")?.[1] ?? "";
+        return title.toLowerCase().includes(search);
+      });
+    }
 
     if (events.length === 0) {
       console.log("❌ Keine Events gefunden.\n");
       return;
     }
 
-    console.log(`✅ ${events.length} Events gefunden\n`);
+    // Sortieren nach Start-Timestamp (neueste zuerst)
+    events.sort((a, b) => {
+      const aStart = Number(a.tags.find((t) => t[0] === "start")?.[1] ?? 0);
+      const bStart = Number(b.tags.find((t) => t[0] === "start")?.[1] ?? 0);
+      return bStart - aStart;
+    });
 
-    // Sortieren nach created_at (neueste zuerst)
-    events.sort((a, b) => b.created_at - a.created_at);
+    // Limit client-seitig nochmal anwenden (Relay hält es nicht immer ein)
+    const displayed = limit ? events.slice(0, limit) : events;
+    console.log(`✅ ${events.length} Events gefunden${limit ? ` (zeige ${displayed.length})` : ""}\n`);
 
-    for (const evt of events) {
-      const title = evt.tags.find((t) => t[0] === "title")?.[1] ?? "(kein Titel)";
-      const dTag = evt.tags.find((t) => t[0] === "d")?.[1] ?? "(kein d-Tag)";
+    for (const evt of displayed) {
+      const title    = evt.tags.find((t) => t[0] === "title")?.[1]  ?? "(kein Titel)";
+      const dTag     = evt.tags.find((t) => t[0] === "d")?.[1]      ?? "(kein d-Tag)";
       const startSec = Number(evt.tags.find((t) => t[0] === "start")?.[1] ?? 0);
       const startStr = startSec ? new Date(startSec * 1000).toISOString() : "?";
-      const hash = evt.tags.find((t) => t[0] === "x")?.[1] ?? "(kein Hash)";
+      const tTags    = evt.tags.filter((t) => t[0] === "t").map((t) => t[1]).join(", ");
 
       console.log(`  📌 "${title}"`);
       console.log(`     d-Tag : ${dTag}`);
       console.log(`     Start : ${startStr}`);
-      console.log(`     Hash  : ${hash ? `${hash.slice(0, 16)}…` : hash}`);
-      console.log(`     Event ID: ${evt.id.slice(0, 16)}…`);
+      if (tTags)  console.log(`     Tags  : ${tTags}`);
+      console.log(`     ID    : ${evt.id.slice(0, 16)}…`);
       console.log();
     }
 
-    console.log(`📊 Zusammenfassung:`);
-    console.log(`   Insgesamt: ${events.length} Events auf dem Relay`);
+    console.log(`📊 Zusammenfassung: ${events.length} Events auf dem Relay`);
   } finally {
-    pool.close([NOSTR_RELAY]);
+    pool.close([relay]);
   }
 }
 
