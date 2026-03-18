@@ -1,0 +1,13 @@
+{
+  "tasks": {
+    "start":   "deno run --allow-net --allow-env=NOSTR_PRIVATE_KEY,DRY_RUN,WP_API_URL,WP_CATEGORY,NOSTR_RELAY wp-to-nostr.ts",
+    "dry-run": "DRY_RUN=true deno run --allow-net --allow-env=NOSTR_PRIVATE_KEY,DRY_RUN,WP_API_URL,WP_CATEGORY,NOSTR_RELAY wp-to-nostr.ts",
+    "inspect": "deno run --allow-net --allow-env=WP_API_URL,WP_CATEGORY,WP_PAGE inspect-mapping.ts"
+  },
+  "imports": {
+    "nostr-tools":       "npm:nostr-tools@^2.10.4",
+    "nostr-tools/relay": "npm:nostr-tools@^2.10.4/relay",
+    "nostr-tools/nip19": "npm:nostr-tools@^2.10.4/nip19",
+    "turndown":          "npm:turndown@^7.2.0"
+  }
+}

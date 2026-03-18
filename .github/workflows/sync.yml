@@ -1,0 +1,37 @@
+name: WordPress → Nostr Sync
+
+on:
+  schedule:
+    # Alle 6 Stunden synchronisieren
+    - cron: '0 */6 * * *'
+
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Dry Run – Events anzeigen, aber NICHT auf Nostr posten'
+        required: false
+        default: 'true'
+        type: choice
+        options:
+          - 'true'
+          - 'false'
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
+      - name: WordPress → Nostr synchronisieren
+        env:
+          NOSTR_PRIVATE_KEY: ${{ secrets.NOSTR_PRIVATE_KEY }}
+          DRY_RUN: ${{ inputs.dry_run || 'false' }}
+          WP_API_URL: ${{ vars.WP_API_URL || 'https://relilab.org/wp-json/wp/v2/posts' }}
+          WP_CATEGORY: ${{ vars.WP_CATEGORY || '176' }}
+          NOSTR_RELAY: ${{ vars.WP_NOSTR_RELAY || 'wss://relay-rpi.edufeed.org' }}
+        run: deno task start

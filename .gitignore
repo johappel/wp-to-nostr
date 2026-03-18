@@ -1,0 +1,14 @@
+# Deno
+.deno/
+deno.lock
+
+# macOS
+.DS_Store
+
+# IDE
+.vscode/
+.idea/
+
+# Backup / generated
+*.bak
+*.log
