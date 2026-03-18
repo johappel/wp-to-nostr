@@ -10,7 +10,7 @@ on:
       dry_run:
         description: 'Dry Run – Events anzeigen, aber NICHT auf Nostr posten'
         required: false
-        default: 'true'
+        default: 'false'
         type: choice
         options:
           - 'true'
@@ -34,4 +34,11 @@ jobs:
           WP_API_URL: ${{ vars.WP_API_URL || 'https://relilab.org/wp-json/wp/v2/posts' }}
           WP_CATEGORY: ${{ vars.WP_CATEGORY || '176' }}
           NOSTR_RELAY: ${{ vars.WP_NOSTR_RELAY || 'wss://relay-rpi.edufeed.org' }}
-        run: deno task start
+        run: deno task start | tee sync-$(date +%s).log
+
+      - name: Logs archivieren
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sync-logs
+          path: sync-*.log
