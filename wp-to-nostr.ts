@@ -205,8 +205,13 @@ function mapPostToNostrEvent(post: WpPost): NostrEventTemplate | null {
   tags.push(["r", wpUrl]);
   tags.push(...keywordTags);
 
-  // created_at = jetzt → Relay ersetzt immer die vorherige Version des Events
-  const createdAt = Math.floor(Date.now() / 1000);
+  // created_at = modified_gmt des WP-Posts (bereits UTC).
+  // Relay ersetzt ein bestehendes Event nur, wenn das neue created_at größer ist →
+  // unveränderte Posts werden automatisch übersprungen, ohne das Relay abfragen zu müssen.
+  const modifiedUtc = new Date(post.modified_gmt.replace(" ", "T") + "Z");
+  const createdAt = isNaN(modifiedUtc.getTime())
+    ? Math.floor(Date.now() / 1000)
+    : Math.floor(modifiedUtc.getTime() / 1000);
 
   return { kind: 31923, created_at: createdAt, tags, content: contentMd };
 }
@@ -271,7 +276,8 @@ async function main(): Promise<void> {
     const startStr = startSec ? new Date(startSec * 1000).toISOString() : "?";
 
     console.log(`  📌 "${title}"`);
-    console.log(`     Start : ${startStr}`);
+    console.log(`     Start    : ${startStr}`);
+    console.log(`     Geändert : ${new Date(evt.created_at * 1000).toISOString()} (created_at = modified_gmt)`);
 
     if (DRY_RUN) {
       console.log("     [DRY RUN] Tags:", JSON.stringify(evt.tags));

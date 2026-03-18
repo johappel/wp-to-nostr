@@ -7,7 +7,9 @@ Kalendereinträge, definiert in [NIP-52](https://github.com/nostr-protocol/nips/
 
 - **Adressierbar** = Der `d`-Tag bildet zusammen mit `kind` und `pubkey` eine
   eindeutige Adresse. Ein neueres Event (höherer `created_at`) mit derselben
-  Adresse **ersetzt** das ältere auf dem Relay.
+  Adresse **ersetzt** das ältere auf dem Relay. Der `created_at` stammt aus dem
+  WP `modified_gmt` – dies ermöglicht es, unveränderte Posts automatisch zu überspringen,
+  ohne das Relay abzufragen.
 - **Nicht zu verwechseln** mit kind:31924 (Calendar) oder kind:31925 (Calendar
   Event RSVP, welches `status`-Tags wie `accepted`/`declined`/`tentative` kennt).
 
@@ -32,7 +34,8 @@ Kalendereinträge, definiert in [NIP-52](https://github.com/nostr-protocol/nips/
 | Feld         | Beschreibung                                              |
 |--------------|-----------------------------------------------------------|
 | `kind`       | `31923`                                                   |
-| `created_at` | Unix-Timestamp der Erstellung (immer aktuell bei Sync)    |
+| `created_at` | Unix-Timestamp aus WP `modified_gmt` – Relay nutzt ihn für Deduplication:
+             |Ist `created_at` größer als das beste Event mit gleicher (kind, pubkey, d), wird die alte Version ersetzt. |
 | `content`    | Langbeschreibung als Markdown (aus WP `content.rendered`) |
 
 ## Mapping: WordPress → Nostr
@@ -50,7 +53,7 @@ Kalendereinträge, definiert in [NIP-52](https://github.com/nostr-protocol/nips/
 | `acf.relilab_custom_zoom_link`      | `location`-Tag (`Zoom: URL`)       |
 | `featured_image_urls_v2.thumbnail[0]`| `image`-Tag                        |
 | `taxonomy_info.post_tag[].label`     | je ein `t`-Tag                     |
-| *(aktueller Zeitpunkt)*             | `created_at`                       |
+| `modified_gmt` (WP-Änderungsdatum)   | `created_at` (→ Relay-Dedup)       |
 
 ## Zeitzonenkonvertierung
 
